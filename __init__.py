@@ -9,6 +9,7 @@ from .src.lora_power_stacker import LoraPowerStacker
 from .src.nodes_block_selector import BlockSelector, KREA2Blocks, FluxKleinBlocks
 from .src.lora_resize import LoraResizer
 from .src.lora_save import LoraSave
+from .src.lora_manager import PMLoraManagerAdapter
 from .src.lora_stack_sampler import LoRAStackSampler
 from .src.nodes_lora_modifier import LoRAModifier
 from .src.nodes_merge_methods import TaskArithmeticMergeMethod, NearSwapMergeMethod, SCEMergeMethod, BreadcrumbsMergeMethod, \
@@ -26,6 +27,7 @@ NODE_CLASS_MAPPINGS = {
     "PM LoRA Stacker (from Directory)": LoraStackFromDir,
     "PM LoRA Select": LoRASelect,
     "PM LoRA Stack Decompose": LoraDecompose,
+    "PMLoraManagerAdapter": PMLoraManagerAdapter,
 
     "PM Block Selector": BlockSelector,
     "PM KREA 2 Blocks": KREA2Blocks,
@@ -60,6 +62,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "PM LoRA Stacker (from Directory)": "PM LoRA Stacker (from Directory)",
     "PM LoRA Select": "PM LoRA Select",
     "PM LoRA Stack Decompose": "PM LoRA Stack Decompose",
+    "PMLoraManagerAdapter": "PM LoRA Manager Adapter",
 
     "PM Block Selector": "PM Block Selector",
     "PM KREA 2 Blocks": "PM KREA 2 Blocks",

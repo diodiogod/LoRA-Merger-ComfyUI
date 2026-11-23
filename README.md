@@ -87,6 +87,10 @@ Load all LoRAs from a directory automatically with unified strength control.
 - `LoRARawDict`: Raw LoRA state dictionaries for CLIP weights
 
 
+#### PM LoRA Manager Adapter
+
+Connect LoRA Manager's `LORA_STACK`, the base `MODEL`, and optionally `CLIP`. Feed `components` and `strengths` directly into PM LoRA Merger, skipping Power Stacker and Decompose. Supports ordinary LoRAs with different ranks; zero-padding preserves their updates and gives PM a summed-rank budget.
+
 #### PM LoRA Stack Decompose
 Decompose LoRA stack into (up, down, alpha) tensor components for merging.
 
