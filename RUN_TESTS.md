@@ -36,6 +36,18 @@ $PY -m pytest tests/ -k "sparsify or interp"      # by name
 
 Requires `pytest-cov` (see `requirements-dev.txt`).
 
+## Native LoRA Checks
+
+Run these from the project folder with ComfyUI's Python:
+
+```bash
+$PY tests/run_lora_manager_tests.py
+$PY tests/run_moss_export_tests.py
+node tests/power_stacker_frontend.cjs
+```
+
+The Python scripts use real ComfyUI registration, patching, and save/reload paths with tiny temporary LoRAs on CPU. They do not generate images or load user models. The Node.js script checks the Power Stacker picker.
+
 ## Two Kinds of Test File
 
 Both kinds are collected by `pytest tests/`; the difference only matters when

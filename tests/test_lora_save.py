@@ -7,6 +7,7 @@ import importlib.util, os, sys, tempfile, traceback
 from unittest.mock import patch
 
 import torch
+import safetensors.torch as st
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARENT = os.path.dirname(REPO)            # .../custom_nodes
@@ -117,9 +118,10 @@ def test_prepared_export_state_is_saved_without_reconversion():
     bundle = {"lora": {}, "save_state_dict": state}
     with tempfile.TemporaryDirectory() as tmp:
         with patch.dict(lora_save.folder_paths.folder_names_and_paths, {"loras": ([tmp], set())}), \
-                patch.object(lora_save, "convert_to_regular_lora", side_effect=AssertionError("Must not reconvert")):
+                patch.object(lora_save, "convert_to_regular_lora", side_effect=AssertionError("Must not reconvert")), \
+                patch.object(lora_save.comfy.utils, "save_torch_file", side_effect=st.save_file):
             lora_save.LoraSave().lora_save(None, bundle, "prepared", "safetensors")
-        loaded = lora_save.comfy.utils.load_torch_file(os.path.join(tmp, "prepared.safetensors"), safe_load=True)
+        loaded = st.load_file(os.path.join(tmp, "prepared.safetensors"))
         assert set(loaded) == set(state)
         for key, tensor in state.items():
             assert torch.equal(loaded[key], tensor)
@@ -132,7 +134,8 @@ def test_regular_bundle_still_uses_the_converter():
     bundle = {"lora": {"test": object()}}
     with tempfile.TemporaryDirectory() as tmp:
         with patch.dict(lora_save.folder_paths.folder_names_and_paths, {"loras": ([tmp], set())}), \
-                patch.object(lora_save, "convert_to_regular_lora", return_value={"test": torch.ones(2)}) as convert:
+                patch.object(lora_save, "convert_to_regular_lora", return_value={"test": torch.ones(2)}) as convert, \
+                patch.object(lora_save.comfy.utils, "save_torch_file", side_effect=st.save_file):
             lora_save.LoraSave().lora_save(None, bundle, "regular", "safetensors")
         convert.assert_called_once_with(None, bundle["lora"])
         assert os.path.isfile(os.path.join(tmp, "regular.safetensors"))

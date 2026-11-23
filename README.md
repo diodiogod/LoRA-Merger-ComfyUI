@@ -91,6 +91,12 @@ Load all LoRAs from a directory automatically with unified strength control.
 
 Connect LoRA Manager's `LORA_STACK`, the base `MODEL`, and optionally `CLIP`. Feed `components` and `strengths` directly into PM LoRA Merger, skipping Power Stacker and Decompose. Supports ordinary LoRAs with different ranks; zero-padding preserves their updates and gives PM a summed-rank budget.
 
+#### PM Direct Concatenate LoRAs
+
+Connect a LoRA Manager stack and base model, then send `lora` directly to PM Apply LoRA and PM Save LoRA. Ordinary LoRA factors are concatenated without SVD; source strengths are baked in, so apply the result at `1.0`. Different ranks work, but ranks add and files can be large. The `info` output reports rank and estimated tensor size.
+
+Both nodes are included in PM. If you installed the old standalone bridge, disable it; existing node IDs are unchanged.
+
 #### PM LoRA Stack Decompose
 Decompose LoRA stack into (up, down, alpha) tensor components for merging.
 

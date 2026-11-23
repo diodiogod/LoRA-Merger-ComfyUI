@@ -91,6 +91,14 @@ def _mock_comfyui_modules():
     comfy_mock.model_management = mm
     comfy_mock.utils = sys.modules['comfy.utils']
 
+    api_mock = types.ModuleType("comfy_api")
+    latest_mock = types.ModuleType("comfy_api.latest")
+    latest_mock.io = MagicMock()
+    latest_mock.io.ComfyNode = type("ComfyNode", (), {})
+    api_mock.latest = latest_mock
+    sys.modules["comfy_api"] = api_mock
+    sys.modules["comfy_api.latest"] = latest_mock
+
     sys.modules['comfy_extras'] = MagicMock()
     sys.modules['comfy_extras.nodes_custom_sampler'] = MagicMock()
     sys.modules['nodes'] = MagicMock()
