@@ -1,2 +1,3 @@
-git+https://github.com/arcee-ai/mergekit.git#egg=mergekit
+# Keep the merge-method API used by this node pack.
+git+https://github.com/arcee-ai/mergekit.git@632b6be549d1cd55a03db67039822bc292659306#egg=mergekit
 lxml
