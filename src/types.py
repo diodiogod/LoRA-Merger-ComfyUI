@@ -104,12 +104,14 @@ class LoRABundleDict(TypedDict, total=False):
     Fields:
         lora_raw: Raw state dict (complete LoRA file) - used to preserve original CLIP weights
         lora: ComfyUI format (model weights only, after layer filtering)
+        save_state_dict: Prepared export tensors for the current patches, not the original input file
         strength_model: Strength multiplier for model weights
         strength_clip: Strength multiplier for CLIP weights (optional)
         name: Pretty name of the LoRA
     """
     lora_raw: Dict[str, torch.Tensor]  # Raw state dict (includes both model and CLIP weights)
     lora: LORA_KEY_DICT  # ComfyUI format (model weights, may be filtered)
+    save_state_dict: Dict[str, torch.Tensor]
     strength_model: float
     strength_clip: float
     name: str

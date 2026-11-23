@@ -4,6 +4,7 @@
 # save-time sanitation turns the transposed / sliced views produced by the refactor
 # paths into tensors safetensors will actually serialize.
 import importlib.util, os, sys, tempfile, traceback
+from unittest.mock import patch
 
 import torch
 
@@ -21,6 +22,7 @@ sys.modules[PKG] = pkg
 spec.loader.exec_module(pkg)
 
 from LoRA_Merger_ComfyUI_test.src.lora_save import sanitize_for_save
+from LoRA_Merger_ComfyUI_test.src import lora_save
 
 
 def storage_elems(t):
@@ -103,6 +105,37 @@ def test_sanitized_state_dict_is_serializable():
             assert torch.equal(loaded[k], v)
         # Release mapped tensors before Windows deletes the temporary file.
         del loaded
+
+
+def test_prepared_export_state_is_saved_without_reconversion():
+    shared = torch.randn(3, 3)
+    state = {
+        "diffusion_model.test.lora_up.weight": shared,
+        "diffusion_model.test.lora_down.weight": shared,
+        "diffusion_model.test.alpha": torch.tensor(3.0),
+    }
+    bundle = {"lora": {}, "save_state_dict": state}
+    with tempfile.TemporaryDirectory() as tmp:
+        with patch.dict(lora_save.folder_paths.folder_names_and_paths, {"loras": ([tmp], set())}), \
+                patch.object(lora_save, "convert_to_regular_lora", side_effect=AssertionError("Must not reconvert")):
+            lora_save.LoraSave().lora_save(None, bundle, "prepared", "safetensors")
+        loaded = lora_save.comfy.utils.load_torch_file(os.path.join(tmp, "prepared.safetensors"), safe_load=True)
+        assert set(loaded) == set(state)
+        for key, tensor in state.items():
+            assert torch.equal(loaded[key], tensor)
+        assert state["diffusion_model.test.lora_up.weight"] is shared
+        assert state["diffusion_model.test.lora_down.weight"] is shared
+        del loaded
+
+
+def test_regular_bundle_still_uses_the_converter():
+    bundle = {"lora": {"test": object()}}
+    with tempfile.TemporaryDirectory() as tmp:
+        with patch.dict(lora_save.folder_paths.folder_names_and_paths, {"loras": ([tmp], set())}), \
+                patch.object(lora_save, "convert_to_regular_lora", return_value={"test": torch.ones(2)}) as convert:
+            lora_save.LoraSave().lora_save(None, bundle, "regular", "safetensors")
+        convert.assert_called_once_with(None, bundle["lora"])
+        assert os.path.isfile(os.path.join(tmp, "regular.safetensors"))
 
 
 if __name__ == "__main__":

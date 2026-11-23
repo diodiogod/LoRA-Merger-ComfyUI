@@ -42,8 +42,11 @@ class LoraSave:
         save_path = os.path.join(folder_paths.folder_names_and_paths["loras"][0][0], file_name + "." + extension)
 
         # Convert model weights from ComfyUI format to regular LoRA format
-        state_dict = lora['lora']
-        new_state_dict = convert_to_regular_lora(model, state_dict)
+        if "save_state_dict" in lora:
+            # Direct-concatenation bundles already contain native, reloadable LoRA names.
+            new_state_dict = lora["save_state_dict"]
+        else:
+            new_state_dict = convert_to_regular_lora(model, lora['lora'])
 
         # CLIP layers are now merged as part of the merge process,
         # so we don't need to copy them from lora_raw anymore.
