@@ -1,5 +1,5 @@
 import { app } from "../../../scripts/app.js";
-import { ComfyWidgets } from "../../../scripts/widgets.js";
+import { api } from "../../../scripts/api.js";
 
 // Default data structure for a LoRA widget
 const DEFAULT_LORA_WIDGET_DATA = {
@@ -8,28 +8,31 @@ const DEFAULT_LORA_WIDGET_DATA = {
     strength: 1.0,
 };
 
-// Utility function to get list of available LoRAs
+let lorasListRequest;
+let lorasListExpiresAt = 0;
+let selectorRequest = 0;
+
+// Share the small loader-specific response between rows and simultaneous clicks.
 async function getLorasList() {
-    try {
-        const response = await fetch('/object_info');
-        const objectInfo = await response.json();
-
-        // Find LoRA loader nodes and extract lora_name options
-        for (const nodeType in objectInfo) {
-            const nodeInfo = objectInfo[nodeType];
-            if (nodeInfo.input && nodeInfo.input.required && nodeInfo.input.required.lora_name) {
-                const loraOptions = nodeInfo.input.required.lora_name[0];
-                if (Array.isArray(loraOptions)) {
-                    return loraOptions;
-                }
-            }
-        }
-
-        return [];
-    } catch (error) {
-        console.error("Error fetching LoRAs list:", error);
-        return [];
+    if (!lorasListRequest || Date.now() >= lorasListExpiresAt) {
+        lorasListExpiresAt = Date.now() + 60000;
+        lorasListRequest = api.fetchApi("/object_info/LoraLoader")
+            .then(response => {
+                if (!response.ok) throw new Error(`LoRA list request failed: ${response.status}`);
+                return response.json();
+            })
+            .then(objectInfo => {
+                const options = objectInfo.LoraLoader?.input?.required?.lora_name?.[0];
+                if (!Array.isArray(options)) throw new Error("LoRA list is missing from LoraLoader");
+                return options;
+            })
+            .catch(error => {
+                lorasListRequest = undefined;
+                console.error("Error fetching LoRAs list:", error);
+                return [];
+            });
     }
+    return lorasListRequest;
 }
 
 class PMLoraStackerWidget {
@@ -50,6 +53,8 @@ class PMLoraStackerWidget {
         const innerMargin = 3;
 
         this.lastY = y;
+        this.height = widgetHeight;
+        this.width = widgetWidth;
 
         // Background
         ctx.fillStyle = this.value.on ? "#2a2a2a" : "#1a1a1a";
@@ -159,7 +164,7 @@ class PMLoraStackerWidget {
     }
 
     mouse(event, pos, node) {
-        const widgetWidth = node.size[0];
+        const widgetWidth = this.width || node.size[0];
         const margin = 10;
         const innerMargin = 3;
         const checkboxSize = 16;
@@ -173,7 +178,9 @@ class PMLoraStackerWidget {
             // Check checkbox
             if (localX >= checkboxX && localX <= checkboxX + checkboxSize &&
                 localY >= checkboxY && localY <= checkboxY + checkboxSize) {
-                this.value.on = !this.value.on;
+                this.value = { ...this.value, on: !this.value.on };
+                this.triggerDraw?.();
+                app.graph.setDirtyCanvas(true);
                 return true;
             }
 
@@ -187,7 +194,7 @@ class PMLoraStackerWidget {
             const loraNameX = checkboxX + checkboxSize + innerMargin * 2;
             const loraNameWidth = this.loraNameWidth || 280;
             if (localX >= loraNameX && localX <= loraNameX + loraNameWidth &&
-                localY >= this.lastY && localY <= this.lastY + this.height) {
+                localY >= this.lastY && localY < this.lastY + this.height) {
                 this.openLoraSelector(node, event);
                 return true;
             }
@@ -225,7 +232,8 @@ class PMLoraStackerWidget {
     }
 
     adjustStrength(type, delta) {
-        this.value.strength = Math.round((this.value.strength + delta) * 100) / 100;
+        this.value = { ...this.value, strength: Math.round((this.value.strength + delta) * 100) / 100 };
+        this.triggerDraw?.();
         app.graph.setDirtyCanvas(true);
     }
 
@@ -236,14 +244,17 @@ class PMLoraStackerWidget {
         if (newValue !== null) {
             const numValue = parseFloat(newValue);
             if (!isNaN(numValue)) {
-                this.value.strength = Math.round(numValue * 100) / 100;
+                this.value = { ...this.value, strength: Math.round(numValue * 100) / 100 };
+                this.triggerDraw?.();
                 app.graph.setDirtyCanvas(true);
             }
         }
     }
 
     async openLoraSelector(node, event) {
+        const request = ++selectorRequest;
         const loras = await getLorasList();
+        if (request !== selectorRequest || !node.widgets.includes(this)) return;
 
         // Build simple array of LoRA names (enables built-in search)
         const loraOptions = ["None", ...loras];
@@ -255,13 +266,11 @@ class PMLoraStackerWidget {
             scale: Math.max(1.0, app.canvas.ds?.scale || 1.0),
             className: "dark",
             callback: (value) => {
-                if (value && value.content) {
-                    // Handle object format (shouldn't happen with string array)
-                    this.value.lora = value.content === "None" ? null : value.content;
-                } else {
-                    // Handle string format (expected)
-                    this.value.lora = value === "None" ? null : value;
-                }
+                if (request !== selectorRequest || !node.widgets.includes(this)) return;
+                const selected = typeof value === "string" ? value : value?.content;
+                if (typeof selected !== "string") return;
+                this.value = { ...this.value, lora: selected === "None" ? null : selected };
+                this.triggerDraw?.();
                 app.graph.setDirtyCanvas(true);
             }
         });
@@ -309,10 +318,10 @@ app.registerExtension({
 
             nodeType.prototype.addLoraWidget = function() {
                 this.loraWidgetsCounter++;
-                const widget = new PMLoraStackerWidget(`lora_${this.loraWidgetsCounter}`, this);
+                const widget = this.addCustomWidget(new PMLoraStackerWidget(`lora_${this.loraWidgetsCounter}`, this));
 
-                // Insert before the "Add Lora" button (last widget)
-                const addButton = this.widgets[this.widgets.length - 1];
+                // Register first, then move the new row before the Add Lora button.
+                this.widgets.pop();
                 this.widgets.splice(this.widgets.length - 1, 0, widget);
 
                 // Only update height to fit widgets, preserve user's width
@@ -350,7 +359,7 @@ app.registerExtension({
                     // Check if mouse is over a widget
                     let lastWidget = null;
                     for (const widget of this.widgets) {
-                        if (widget instanceof PMLoraStackerWidget) {
+                        if (widget.type === "pm_lora_widget") {
                             if (!widget.lastY) continue;
 
                             // Check if mouse Y is past this widget
@@ -363,7 +372,7 @@ app.registerExtension({
                     }
 
                     // If we found a LoRA widget under the mouse, return it as a virtual slot
-                    if (lastWidget && lastWidget instanceof PMLoraStackerWidget) {
+                    if (lastWidget?.type === "pm_lora_widget") {
                         // Check if mouse is actually within the widget bounds
                         const widgetBottom = this.pos[1] + lastWidget.lastY + lastWidget.height;
                         if (canvasY <= widgetBottom) {
@@ -378,12 +387,12 @@ app.registerExtension({
             // Override getSlotMenuOptions to show context menu for widgets
             nodeType.prototype.getSlotMenuOptions = function(slot) {
                 // Check if this is a LoRA widget slot
-                if (slot?.widget && slot.widget instanceof PMLoraStackerWidget) {
+                if (slot?.widget?.type === "pm_lora_widget") {
                     const widget = slot.widget;
                     const index = this.widgets.indexOf(widget);
 
                     // Find all LoRA widgets to determine if we can move up/down
-                    const loraWidgets = this.widgets.filter(w => w instanceof PMLoraStackerWidget);
+                    const loraWidgets = this.widgets.filter(w => w.type === "pm_lora_widget");
                     const loraIndex = loraWidgets.indexOf(widget);
 
                     const canMoveUp = loraIndex > 0;
@@ -393,7 +402,8 @@ app.registerExtension({
                         {
                             content: `${widget.value.on ? "⚫" : "🟢"} Toggle ${widget.value.on ? "Off" : "On"}`,
                             callback: () => {
-                                widget.value.on = !widget.value.on;
+                                widget.value = { ...widget.value, on: !widget.value.on };
+                                widget.triggerDraw?.();
                                 app.graph.setDirtyCanvas(true);
                             }
                         },
@@ -462,7 +472,7 @@ app.registerExtension({
                 // Restore LoRA widgets from widgets_values
                 if (info.widgets_values) {
                     // Clear existing LoRA widgets (keep layer_filter, divider, and add button)
-                    const nonLoraWidgets = this.widgets.filter(w => !(w instanceof PMLoraStackerWidget));
+                    const nonLoraWidgets = this.widgets.filter(w => w.type !== "pm_lora_widget");
                     this.widgets = nonLoraWidgets;
 
                     // Restore LoRA widgets
@@ -497,7 +507,7 @@ app.registerExtension({
                 o.widgets_values = [];
 
                 this.widgets.forEach(w => {
-                    if (w instanceof PMLoraStackerWidget) {
+                    if (w.type === "pm_lora_widget") {
                         o.widgets_values.push(w.serializeValue());
                     } else if (w.name === "layer_filter") {
                         o.widgets_values.push(w.value);
