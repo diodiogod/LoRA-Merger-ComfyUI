@@ -101,6 +101,8 @@ def test_sanitized_state_dict_is_serializable():
         assert set(loaded) == set(state_dict)
         for k, v in state_dict.items():
             assert torch.equal(loaded[k], v)
+        # Release mapped tensors before Windows deletes the temporary file.
+        del loaded
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import re
 from typing import List, Set, Dict
 
 import comfy
+import comfy.lora
 import torch
 from comfy.model_patcher import ModelPatcher
 from torch import Tensor
@@ -126,74 +127,17 @@ def convert_to_regular_lora(model, state_dict: LORA_KEY_DICT):
     diffusers_map = sd_to_diffusers_map(model)
     out = {}
 
-    # Group split QKV weights by base key
-    qkv_groups = {}
-    non_qkv_keys = []
+    if any(isinstance(key, tuple) for key in state_dict):
+        native_map = comfy.lora.model_lora_keys_unet(model.model, {})
+        split_names = {target: name for name, target in native_map.items() if isinstance(target, tuple)}
+        for key in state_dict:
+            if isinstance(key, tuple):
+                if key not in split_names:
+                    raise ValueError(f"No native LoRA export name for weight slice {key}")
+                # Keep each projection's factors, rank, alpha, and offset independent.
+                diffusers_map[key] = split_names[key]
 
-    for sd_key in state_dict.keys():
-        # Check if this is a split QKV key (tuple format with offset)
-        if isinstance(sd_key, tuple) and len(sd_key) == 2:
-            base_key = sd_key[0]
-            if ".qkv.weight" in base_key or ".in_proj_weight" in base_key:
-                if base_key not in qkv_groups:
-                    qkv_groups[base_key] = []
-                qkv_groups[base_key].append(sd_key)
-            else:
-                non_qkv_keys.append(sd_key)
-        else:
-            non_qkv_keys.append(sd_key)
-
-    # Process QKV groups - concatenate split components
-    for base_key, split_keys in qkv_groups.items():
-        # Sort by offset to ensure correct order (Q, K, V)
-        split_keys_sorted = sorted(split_keys, key=lambda x: x[1][1])  # Sort by offset
-
-        # Extract tensors from each split
-        up_parts = []
-        down_parts = []
-        alphas = []
-
-        for sk in split_keys_sorted:
-            lora_settings = state_dict[sk]
-            up, down, alpha, mid, dora_scale, reshape = lora_settings.weights
-            up_parts.append(up)
-            down_parts.append(down)
-            alphas.append(alpha if alpha is not None else 1.0)
-
-        # Check if all alphas are the same
-        alpha_val = alphas[0]
-        if not all(abs(a - alpha_val) < 1e-6 for a in alphas):
-            logging.warning(f"QKV components have different alphas: {alphas}. Using first alpha: {alpha_val}")
-
-        # Concatenate along the output dimension (dim=0 for up tensor)
-        up_combined = torch.cat(up_parts, dim=0)
-        # down tensors should be the same for all splits, just take the first one
-        down_combined = down_parts[0]
-
-        # Generate key for combined QKV
-        key_base = base_key.replace("diffusion_model.", "")
-        if key_base.endswith(".weight"):
-            key_base = key_base[:-len(".weight")]
-        key_suffix = key_base.replace(".", "_")
-
-        up_key = "lora_unet_{}.lora_up.weight".format(key_suffix)
-        down_key = "lora_unet_{}.lora_down.weight".format(key_suffix)
-        alpha_key = "lora_unet_{}.alpha".format(key_suffix)
-
-        # Convert alpha to tensor, handling both float and tensor inputs
-        if alpha_val is None:
-            alpha_tensor = torch.tensor(1.0)
-        elif isinstance(alpha_val, torch.Tensor):
-            alpha_tensor = alpha_val.clone().detach().cpu()
-        else:
-            alpha_tensor = torch.tensor(float(alpha_val))
-
-        out[up_key] = up_combined
-        out[down_key] = down_combined
-        out[alpha_key] = alpha_tensor
-
-    # Process non-QKV keys normally
-    for sd_key in non_qkv_keys:
+    for sd_key in state_dict:
         lora_settings = state_dict[sd_key]
         lora_type: str = lora_settings.name
         lora_data: List[Tensor] = lora_settings.weights
@@ -222,7 +166,7 @@ def convert_to_regular_lora(model, state_dict: LORA_KEY_DICT):
 
                 # Convert alpha to tensor, handling both float and tensor inputs
                 if alpha is None:
-                    alpha_tensor = torch.tensor(1.0)
+                    alpha_tensor = torch.tensor(float(down.shape[0]))
                 elif isinstance(alpha, torch.Tensor):
                     alpha_tensor = alpha.clone().detach().cpu()
                 else:
@@ -242,7 +186,7 @@ def convert_to_regular_lora(model, state_dict: LORA_KEY_DICT):
 
                 # Convert alpha to tensor, handling both float and tensor inputs
                 if alpha is None:
-                    alpha_tensor = torch.tensor(1.0)
+                    alpha_tensor = torch.tensor(float(down.shape[0]))
                 elif isinstance(alpha, torch.Tensor):
                     alpha_tensor = alpha.clone().detach().cpu()
                 else:

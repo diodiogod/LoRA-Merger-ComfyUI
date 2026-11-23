@@ -54,6 +54,15 @@ class LoraSave:
         # their backing storage before saving.
         new_state_dict = {k: sanitize_for_save(v) for k, v in new_state_dict.items()}
 
+        # Separate projections may share factors in memory; safetensors requires separate storage.
+        seen_storage = set()
+        for key, tensor in new_state_dict.items():
+            if isinstance(tensor, torch.Tensor):
+                storage = tensor.untyped_storage().data_ptr()
+                if storage in seen_storage:
+                    new_state_dict[key] = tensor.clone()
+                seen_storage.add(storage)
+
         print(f"Saving LoRA to {save_path}")
         comfy.utils.save_torch_file(new_state_dict, save_path)
 
